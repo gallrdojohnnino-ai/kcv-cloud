@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KCV CLOUD – Ultimate Log Separator</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+body{margin:0;background:#020617;color:#e5e7eb;font-family:Arial}
+.container{max-width:1400px;margin:20px auto;background:#020617;padding:20px;border-radius:12px}
+h1{text-align:center;color:#38bdf8}
+.box{border:1px solid #1e293b;border-radius:10px;padding:15px;margin-top:15px}
+input,textarea,button{
+width:100%;padding:10px;margin-top:8px;border-radius:6px;
+background:#020617;color:#e5e7eb;border:1px solid #334155
+}
+button{background:#38bdf8;color:#020617;font-weight:bold;cursor:pointer}
+button:hover{background:#0ea5e9}
+.logout{background:#ef4444;color:white}
+.hidden{display:none}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{border:1px solid #334155;padding:6px;text-align:center}
+small{color:#94a3b8}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<!-- AUTH -->
+<div id="auth">
+<h1>☁️ KCV CLOUD</h1>
+<input id="regUser" placeholder="Username">
+<input id="regEmail" placeholder="Email">
+<input id="regPass" type="password" placeholder="Password">
+<button onclick="register()">Register</button>
+<hr>
+<input id="logUser" placeholder="Username">
+<input id="logPass" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+<h1>☁️ KCV CLOUD</h1>
+<button class="logout" onclick="logout()">Logout</button>
+
+<div class="box">
+<h3>📤 Upload Logs</h3>
+<input type="file" id="fileInput" accept=".txt">
+<button onclick="processLogs()">Process Logs</button>
+</div>
+
+<div class="box">
+<h3>🔍 Keyword Rules</h3>
+<input id="kWord" placeholder="Keyword">
+<input id="kFile" placeholder="Output file">
+<input id="kPrio" type="number" placeholder="Priority">
+<button onclick="addRule()">Add Rule</button>
+<table>
+<thead><tr><th>Keyword</th><th>File</th><th>Priority</th><th>❌</th></tr></thead>
+<tbody id="ruleTable"></tbody>
+</table>
+</div>
+
+<div class="box">
+<h3>📊 Result</h3>
+<textarea id="preview" readonly></textarea>
+<button onclick="downloadZip()">📦 Download ZIP</button>
+</div>
+
+<div id="adminPanel" class="box hidden">
+<h3>👑 Admin Panel</h3>
+<table>
+<thead><tr><th>User</th><th>Email</th><th>Role</th></tr></thead>
+<tbody id="adminTable"></tbody>
+</table>
+</div>
+
+</div>
+</div>
+
+<script>
+/* ================= STORAGE ================= */
+const USERKEY="kcv_users";
+const RULEKEY="kcv_rules";
+let currentUser=null;
+
+/* ================= DEFAULT ADMIN ================= */
+let users=JSON.parse(localStorage.getItem(USERKEY)||"{}");
+if(!users.admin){
+ users.admin={pass:"admin123",email:"admin@kcv.cloud",role:"admin"};
+ localStorage.setItem(USERKEY,JSON.stringify(users));
+}
+
+/* ================= DEFAULT KEYWORDS ================= */
+const DEFAULT_RULES=[
+ {k:"mtacc.mobilelegends.com",f:"MTACC.txt",p:100},
+ {k:"mobilelegends.com",f:"mobilelegends.txt",p:70},
+ {k:"mobilelegends",f:"ml.txt",p:60},
+ {k:"garena.com",f:"garena.txt",p:80},
+ {k:"sso.garena.com",f:"sso_garena.txt",p:90},
+ {k:"genshin",f:"genshin.txt",p:70},
+ {k:"valorant",f:"valorant.txt",p:60},
+ {k:"riotgames",f:"riot.txt",p:60},
+ {k:"tiktok",f:"tiktok.txt",p:55},
+ {k:"instagram",f:"instagram.txt",p:55},
+ {k:"discord",f:"discord.txt",p:55},
+ {k:"telegram",f:"telegram.txt",p:55},
+ {k:"netflix",f:"netflix.txt",p:60},
+ {k:"spotify",f:"spotify.txt",p:60},
+ {k:"codashop",f:"codashop.txt",p:50},
+ {k:".com",f:"dotcom.txt",p:1}
+];
+
+/* ================= MERGE DEFAULT RULES ================= */
+let rules=JSON.parse(localStorage.getItem(RULEKEY)||"[]");
+DEFAULT_RULES.forEach(d=>{
+ if(!rules.some(r=>r.k===d.k)){
+  rules.push(d);
+ }
+});
+localStorage.setItem(RULEKEY,JSON.stringify(rules));
+
+/* ================= AUTH ================= */
+function register(){
+ let u=regUser.value,e=regEmail.value,p=regPass.value;
+ if(!u||!e||!p) return alert("Fill all");
+ let users=JSON.parse(localStorage.getItem(USERKEY));
+ if(users[u]) return alert("User exists");
+ users[u]={pass:p,email:e,role:"user"};
+ localStorage.setItem(USERKEY,JSON.stringify(users));
+ alert("Registered");
+}
+
+function login(){
+ let u=logUser.value,p=logPass.value;
+ let users=JSON.parse(localStorage.getItem(USERKEY));
+ if(!users[u]||users[u].pass!==p) return alert("Invalid");
+ currentUser=u;
+ auth.classList.add("hidden");
+ app.classList.remove("hidden");
+ loadRules();
+ if(users[u].role==="admin") loadAdmin();
+}
+
+function logout(){location.reload();}
+
+/* ================= RULE EDITOR ================= */
+function loadRules(){
+ rules=JSON.parse(localStorage.getItem(RULEKEY));
+ ruleTable.innerHTML="";
+ rules.sort((a,b)=>b.p-a.p);
+ rules.forEach((r,i)=>{
+  ruleTable.innerHTML+=`
+  <tr>
+   <td>${r.k}</td>
+   <td>${r.f}</td>
+   <td>${r.p}</td>
+   <td><button onclick="delRule(${i})">X</button></td>
+  </tr>`;
+ });
+}
+
+function addRule(){
+ rules.push({k:kWord.value,f:kFile.value,p:+kPrio.value});
+ localStorage.setItem(RULEKEY,JSON.stringify(rules));
+ loadRules();
+}
+
+function delRule(i){
+ rules.splice(i,1);
+ localStorage.setItem(RULEKEY,JSON.stringify(rules));
+ loadRules();
+}
+
+/* ================= WORKER ================= */
+let results={};
+
+function processLogs(){
+ const f=fileInput.files[0];
+ if(!f) return alert("Upload TXT");
+ results={};
+
+ rules.sort((a,b)=>b.p-a.p);
+
+ const r=new FileReader();
+ r.onload=e=>{
+  e.target.result.split(/\r?\n/).forEach(line=>{
+   const l=line.toLowerCase();
+   for(const rule of rules){
+    if(l.includes(rule.k.toLowerCase())){
+     if(!results[rule.f]) results[rule.f]=new Set();
+     results[rule.f].add(line);
+     break;
+    }
+   }
+  });
+  preview.value=Object.keys(results)
+   .map(f=>`${f} → ${results[f].size}`)
+   .join("\n");
+ };
+ r.readAsText(f);
+}
+
+/* ================= ZIP ================= */
+function downloadZip(){
+ const zip=new JSZip();
+ Object.keys(results).forEach(f=>{
+  zip.file(f,[...results[f]].join("\n"));
+ });
+ zip.generateAsync({type:"blob"}).then(b=>{
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);
+  a.download=`KCV_CLOUD_${Date.now()}.zip`;
+  a.click();
+ });
+}
+
+/* ================= ADMIN ================= */
+function loadAdmin(){
+ adminPanel.classList.remove("hidden");
+ const users=JSON.parse(localStorage.getItem(USERKEY));
+ adminTable.innerHTML="";
+ Object.keys(users).forEach(u=>{
+  adminTable.innerHTML+=`
+  <tr><td>${u}</td><td>${users[u].email}</td><td>${users[u].role}</td></tr>`;
+ });
+}
+</script>
+</body>
+</html>
